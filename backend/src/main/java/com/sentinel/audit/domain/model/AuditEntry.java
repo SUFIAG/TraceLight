@@ -2,8 +2,11 @@ package com.sentinel.audit.domain.model;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 @Entity
@@ -34,8 +37,17 @@ public class AuditEntry {
     @Column(name = "entity_id", nullable = false)
     private UUID entityId;
 
+    /**
+     * Structured reasons behind the audited decision.
+     *
+     * columnDefinition only drives DDL generation, which is disabled here, so it
+     * does not tell JDBC how to bind the value. Without the explicit JSON type
+     * code the driver sends a varchar and PostgreSQL rejects it against a jsonb
+     * column. Every other jsonb mapping in this codebase carries this annotation.
+     */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "decision_factors", columnDefinition = "jsonb")
-    private String decisionFactors;
+    private Map<String, Object> decisionFactors;
 
     private String reasoning;
 

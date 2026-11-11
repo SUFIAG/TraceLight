@@ -45,6 +45,16 @@ public class User {
     @Column(nullable = false)
     private boolean enabled;
 
+    @Column(name = "job_title")
+    private String jobTitle;
+
+    @Column(name = "timezone")
+    private String timezone;
+
+    /** Null when the user has no picture. Doubles as the console's cache key. */
+    @Column(name = "avatar_updated_at")
+    private Instant avatarUpdatedAt;
+
     @Column(name = "last_login")
     private Instant lastLogin;
 

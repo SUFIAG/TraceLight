@@ -3,9 +3,9 @@ spring:
     name: sentinel-backend
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/sentinel
-    username: postgres
-    password: postgres
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/sentinel}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -33,6 +33,12 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
+    # A migration applied to an existing database whose file has since been
+    # removed from the repository would otherwise fail validation and stop the
+    # application from starting. Tolerating "missing" keeps a developer database
+    # bootable after a retired migration is deleted; checksum mismatches on
+    # migrations that *are* present still fail, which is the check that matters.
+    ignore-migration-patterns: "*:missing"
 
   servlet:
     multipart:
@@ -44,42 +50,41 @@ spring:
       write-dates-as-timestamps: false
     default-property-inclusion: non_null
 
-  # Phase 6: Kafka Event Streaming (DISABLED - Start Kafka to enable)
-  # kafka:
-  #   bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
-  #   producer:
-  #     key-serializer: org.apache.kafka.common.serialization.StringSerializer
-  #     value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
-  #     acks: all
-  #     retries: 3
-  #     properties:
-  #       enable.idempotence: true
-  #       max.in.flight.requests.per.connection: 5
-  #   consumer:
-  #     group-id: sentinelai-consumer-group
-  #     key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-  #     value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-  #     auto-offset-reset: earliest
-  #     enable-auto-commit: false
-  #     properties:
-  #       spring.json.trusted.packages: com.sentinel.*
+  # Event streaming. Beans only load when sentinel.kafka.enabled=true.
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+        max.in.flight.requests.per.connection: 5
+    consumer:
+      group-id: sentinel-consumer-group
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+      properties:
+        spring.json.trusted.packages: com.sentinel.*
 
-  # Phase 6: Redis Distributed Cache (L2) (DISABLED - Start Redis to enable)
-  # data:
-  #   redis:
-  #     host: ${REDIS_HOST:localhost}
-  #     port: ${REDIS_PORT:6379}
-  #     password: ${REDIS_PASSWORD:}
-  #     database: ${REDIS_DATABASE:0}
-  #     timeout: 2000
-  #     lettuce:
-  #       pool:
-  #         max-active: 8
-  #         max-idle: 8
-  #         min-idle: 2
-  #         max-wait: -1ms
+  # Distributed cache (L2). Beans only load when sentinel.redis.enabled=true.
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
+      timeout: 2000
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
+          max-wait: -1ms
 
-  # Cache profile selection (use 'local' profile for Caffeine only)
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:default}
 
@@ -91,9 +96,55 @@ server:
     connection-timeout: 5000
 
 jwt:
-  secret: SentinelAI-Super-Secret-Key-For-JWT-Token-Generation-2024-Must-Be-At-Least-256-Bits
-  access-token-expiration: 3600
-  refresh-token-expiration: 604800
+  # Development default only. Production MUST supply JWT_SECRET (>= 256 bits).
+  secret: ${JWT_SECRET:SentinelAI-Development-Only-Secret-Key-Replace-In-Production-At-Least-256-Bits}
+  access-token-expiration: ${JWT_ACCESS_TOKEN_EXPIRATION:3600}
+  refresh-token-expiration: ${JWT_REFRESH_TOKEN_EXPIRATION:604800}
+
+# Optional infrastructure. Off by default so the platform boots with PostgreSQL alone.
+sentinel:
+  # Must match the organization seeded by migration V1__initial_schema.sql.
+  # Registration and login fall back to this when no X-Organization-Id is sent.
+  default-organization-id: ${SENTINEL_DEFAULT_ORG_ID:550e8400-e29b-41d4-a716-446655440000}
+  redis:
+    enabled: ${SENTINEL_REDIS_ENABLED:false}
+  kafka:
+    enabled: ${SENTINEL_KAFKA_ENABLED:false}
+  # One sign-in account per role, created on first start so a fresh database is
+  # usable. Registration only ever mints an ANALYST, so without this nobody can
+  # approve a model or promote a rule. Disable outside local development.
+  demo-accounts:
+    enabled: ${SENTINEL_DEMO_ACCOUNTS_ENABLED:true}
+    password: ${SENTINEL_DEMO_PASSWORD:Sentinel@123}
+
+  cors:
+    # Exact origins only. A wildcard here would let any page on the internet
+    # call the API with a user's credentials.
+    allowed-origins: ${SENTINEL_CORS_ORIGINS:http://localhost:3000}
+
+  # Account protection, password rules, and session limits. The startup check
+  # reports any of these that are set for convenience rather than for safety.
+  security:
+    issuer: ${SENTINEL_SECURITY_ISSUER:Tracelight}
+    max-failed-attempts: ${SENTINEL_MAX_FAILED_ATTEMPTS:3}
+    lockout-minutes: ${SENTINEL_LOCKOUT_MINUTES:15}
+    max-lockout-minutes: 1440
+    failed-attempt-window-minutes: 60
+    min-password-length: ${SENTINEL_MIN_PASSWORD_LENGTH:12}
+    max-password-length: 128
+    password-history-size: 5
+    password-max-age-days: ${SENTINEL_PASSWORD_MAX_AGE_DAYS:0}
+    require-email-verification: ${SENTINEL_REQUIRE_EMAIL_VERIFICATION:false}
+    # Development only: echoes verification codes in API responses because no
+    # mail or SMS provider is wired up. Must be false anywhere real.
+    expose-verification-codes: ${SENTINEL_EXPOSE_CODES:true}
+    step-up-freshness-minutes: 15
+    session-idle-minutes: 720
+    max-sessions-per-user: 10
+    login-attempts-per-window: 10
+    login-window-minutes: 5
+    global-requests-per-minute: ${SENTINEL_RATE_LIMIT_PER_MINUTE:600}
+    verification-requests-per-hour: 5
 
 # AI / LLM integration. With provider=none the platform uses deterministic
 # rule-based reasoning. Set provider=openai and supply OPENAI_API_KEY to enable LLM.
@@ -116,6 +167,16 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+  health:
+    # spring-boot-starter-data-redis on the classpath makes Boot auto-register a
+    # Redis health indicator, which pings localhost:6379 and reports the whole
+    # application DOWN when Redis is not running — even though every endpoint
+    # works. Tie these indicators to the same flags that gate the features, so
+    # health reflects what the application actually needs.
+    redis:
+      enabled: ${SENTINEL_REDIS_ENABLED:false}
+    db:
+      enabled: true
 
 logging:
   level:

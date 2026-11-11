@@ -1,343 +1,369 @@
-// Auth Types
-export interface LoginCredentials {
-  email: string;
-  password: string;
+/**
+ * Types mirroring the backend DTOs exactly. When a backend DTO changes, change
+ * it here in the same commit — this file is the contract.
+ */
+
+/* ---------- Envelope ---------- */
+
+export interface ApiEnvelope<T> {
+  success: boolean;
+  data?: T;
+  error?: ErrorDetails;
+  meta?: MetaData;
 }
+
+export interface ErrorDetails {
+  code: string;
+  message: string;
+  /** Field-level validation failures, keyed by field name. */
+  details?: Record<string, string>;
+  timestamp?: string;
+  requestId?: string;
+  path?: string;
+}
+
+export interface MetaData {
+  timestamp?: string;
+  page?: number;
+  totalPages?: number;
+  totalElements?: number;
+}
+
+/** Spring Data's Page shape, as serialised by Jackson. */
+export interface Page<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  number: number;
+  size: number;
+  first: boolean;
+  last: boolean;
+  empty: boolean;
+}
+
+/* ---------- Auth ---------- */
+
+export type UserRole = "ADMIN" | "ANALYST" | "REVIEWER" | "AUDITOR" | "USER";
 
 export interface User {
   id: string;
   email: string;
-  name: string;
-  role: string;
-  tenantId: string;
+  firstName: string | null;
+  lastName: string | null;
+  role: UserRole;
+  enabled: boolean;
+  lastLogin: string | null;
   createdAt: string;
-  lastLogin?: string;
+  jobTitle?: string | null;
+  timezone?: string | null;
+  /** Set when the user has a picture; also the cache key for fetching it. */
+  avatarUpdatedAt?: string | null;
+
+  /* Security posture. Present on /auth/me and the admin team list. */
+  mfaEnabled?: boolean;
+  mfaMethod?: string | null;
+  emailVerified?: boolean;
+  phoneVerified?: boolean;
+  /** Masked. The full number never leaves the backend. */
+  phoneNumber?: string | null;
+  locked?: boolean;
+  lockedUntil?: string | null;
+  mustChangePassword?: boolean;
+  passwordChangedAt?: string | null;
 }
 
-export interface AuthResponse {
-  token: string;
+export interface LoginResponse {
+  accessToken: string;
+  refreshToken: string;
+  tokenType: string;
+  expiresIn: number;
   user: User;
+  /** True when the password was accepted but a second factor is still needed. */
+  mfaRequired?: boolean;
+  challengeId?: string;
+  mfaMethods?: string[];
+  mustChangePassword?: boolean;
+  emailVerified?: boolean;
 }
 
-// Transaction Types
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface RegisterRequest {
+  email: string;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+/* ---------- Transactions ---------- */
+
+export type TransactionStatus = "PENDING" | "FLAGGED" | "APPROVED" | "REJECTED";
+
 export interface Transaction {
   id: string;
-  transactionId: string;
+  transactionExternalId: string;
+  userId: string;
+  merchantId: string;
   amount: number;
   currency: string;
+  country: string | null;
+  deviceId: string | null;
+  ipAddress: string | null;
+  status: TransactionStatus;
+  timestamp: string;
+  createdAt: string;
+}
+
+export interface IngestTransactionRequest {
+  transactionExternalId: string;
+  userId: string;
   merchantId: string;
-  merchantName: string;
-  customerId: string;
-  customerEmail: string;
-  ipAddress: string;
-  deviceId: string;
-  cardLast4: string;
-  status: string;
-  riskScore: number;
-  fraudProbability: number;
-  transactionType: string;
-  location: string;
+  amount: number;
+  currency: string;
+  country?: string;
+  deviceId?: string;
+  ipAddress?: string;
   timestamp: string;
-  flags?: string[];
 }
 
-export interface TransactionDetail extends Transaction {
-  customerName: string;
-  billingAddress: string;
-  shippingAddress: string;
-  deviceFingerprint: string;
-  paymentMethod: string;
-  fraudIndicators: FraudIndicator[];
-  riskFactors: RiskFactor[];
-  timeline: TimelineEvent[];
+export interface BulkUploadResponse {
+  totalProcessed: number;
+  totalFailed: number;
+  /** Rows put through the fraud pipeline. Zero when uploaded with analyze=false. */
+  totalAnalyzed: number;
+  errors: string[] | null;
 }
 
-export interface FraudIndicator {
-  type: string;
-  severity: string;
-  description: string;
-  confidence: number;
-}
+/* ---------- Risk ---------- */
 
-export interface RiskFactor {
-  factor: string;
+export type RiskLevel = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+
+export interface RiskScore {
+  id: string;
+  transactionId: string;
   score: number;
-  weight: number;
-  contribution: number;
+  level: RiskLevel;
+  amountRisk: number;
+  velocityRisk: number;
+  locationRisk: number;
+  deviceRisk: number;
+  historyRisk: number;
+  createdAt: string;
 }
 
-export interface TimelineEvent {
-  timestamp: string;
-  event: string;
-  actor: string;
-  details: string;
-}
+/* ---------- Alerts ---------- */
 
-// Alert Types
+export type AlertSeverity = "MEDIUM" | "HIGH" | "CRITICAL";
+export type AlertStatus = "OPEN" | "INVESTIGATING" | "RESOLVED" | "FALSE_POSITIVE";
+
 export interface Alert {
+  id: string;
+  transactionId: string;
+  severity: AlertSeverity;
+  status: AlertStatus;
+  reason: string;
+  triggeredRules: string[];
+  createdAt: string;
+  updatedAt: string | null;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+}
+
+/* ---------- Cases ---------- */
+
+export type CaseStatus = "OPEN" | "INVESTIGATING" | "RESOLVED" | "CLOSED";
+export type CasePriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+export type CaseResolution = "FRAUD" | "FALSE_POSITIVE" | "MANUAL_REVIEW";
+
+export interface FraudCase {
   id: string;
   alertId: string;
   title: string;
-  description: string;
-  severity: string;
-  status: string;
-  transactionId?: string;
-  customerId?: string;
-  ruleId: string;
-  ruleName: string;
-  triggeredAt: string;
-  assignedTo?: string;
-  resolvedAt?: string;
-  falsePositive: boolean;
-}
-
-export interface AlertDetail extends Alert {
-  transaction?: Transaction;
-  relatedAlerts: Alert[];
-  investigationNotes: InvestigationNote[];
-  actions: AlertAction[];
-}
-
-export interface InvestigationNote {
-  id: string;
-  note: string;
+  priority: CasePriority;
+  status: CaseStatus;
+  assignedTo: string | null;
   createdBy: string;
   createdAt: string;
+  updatedAt: string | null;
+  resolvedAt: string | null;
+  resolution: CaseResolution | null;
 }
 
-export interface AlertAction {
-  id: string;
-  action: string;
-  performedBy: string;
-  performedAt: string;
-  result: string;
-}
-
-// Case Types
-export interface Case {
+export interface CaseComment {
   id: string;
   caseId: string;
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  fraudType: string;
-  totalAmount: number;
-  transactionCount: number;
-  assignedTo?: string;
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt?: string;
-}
-
-export interface CaseDetail extends Case {
-  transactions: Transaction[];
-  alerts: Alert[];
-  timeline: TimelineEvent[];
-  notes: InvestigationNote[];
-  evidence: Evidence[];
-  resolution?: CaseResolution;
-}
-
-export interface Evidence {
-  id: string;
-  type: string;
-  description: string;
-  fileUrl?: string;
-  uploadedBy: string;
-  uploadedAt: string;
-}
-
-export interface CaseResolution {
-  outcome: string;
-  summary: string;
-  actionTaken: string;
-  resolvedBy: string;
-  resolvedAt: string;
-}
-
-// Dashboard Types
-export interface DashboardStats {
-  totalTransactions: number;
-  totalVolume: number;
-  fraudDetected: number;
-  fraudValue: number;
-  activeAlerts: number;
-  openCases: number;
-  averageRiskScore: number;
-  preventionRate: number;
-  transactionsTrend: number;
-  fraudTrend: number;
-  alertsTrend: number;
-  casesTrend: number;
-}
-
-export interface ChartData {
-  timestamp: string;
-  value: number;
-  label?: string;
-}
-
-export interface FraudDistribution {
-  type: string;
-  count: number;
-  amount: number;
-}
-
-export interface RiskDistribution {
-  range: string;
-  count: number;
-  percentage: number;
-}
-
-// Analytics Types
-export interface AnalyticsData {
-  transactionVolume: ChartData[];
-  fraudTrend: ChartData[];
-  riskDistribution: RiskDistribution[];
-  fraudByType: FraudDistribution[];
-  topMerchants: MerchantStats[];
-  topCustomers: CustomerStats[];
-  geographicDistribution: GeographicData[];
-}
-
-export interface MerchantStats {
-  merchantId: string;
-  merchantName: string;
-  transactionCount: number;
-  totalAmount: number;
-  fraudCount: number;
-  averageRiskScore: number;
-}
-
-export interface CustomerStats {
-  customerId: string;
-  customerEmail: string;
-  transactionCount: number;
-  totalAmount: number;
-  flaggedCount: number;
-  riskScore: number;
-}
-
-export interface GeographicData {
-  country: string;
-  transactionCount: number;
-  fraudCount: number;
-  amount: number;
-}
-
-// AI Agent Types
-export interface ChatMessage {
-  id: string;
-  role: "user" | "assistant" | "system";
+  userId: string;
   content: string;
-  timestamp: string;
+  createdAt: string;
 }
 
-export interface AgentResponse {
-  message: string;
-  insights?: Insight[];
-  recommendations?: Recommendation[];
-  relatedData?: any;
+export interface CaseHistoryEntry {
+  id: string;
+  caseId: string;
+  action: string;
+  oldValue: string | null;
+  newValue: string | null;
+  performedBy: string | null;
+  performedAt: string;
 }
 
-export interface Insight {
-  type: string;
-  title: string;
-  description: string;
+/* ---------- AI ---------- */
+
+export type RecommendedAction =
+  | "AUTO_APPROVE"
+  | "AUTO_BLOCK"
+  | "REQUEST_VERIFICATION"
+  | "ESCALATE"
+  | "MONITOR";
+
+export interface Investigation {
+  caseId: string;
+  likelyFraud: boolean;
   confidence: number;
-  data?: any;
+  keyIndicators: string[];
+  narrative: string;
+  provider: string;
 }
 
 export interface Recommendation {
-  action: string;
-  reason: string;
-  priority: string;
-  impact: string;
+  caseId: string;
+  action: RecommendedAction;
+  confidence: number;
+  reasoning: string;
+  provider: string;
 }
 
-// Filter Types
-export interface TransactionFilters {
-  status?: string[];
-  riskScore?: { min: number; max: number };
-  amount?: { min: number; max: number };
-  dateRange?: { start: string; end: string };
-  merchantId?: string;
-  customerId?: string;
-  fraudType?: string[];
+export interface CaseSummary {
+  caseId: string;
+  summary: string;
+  provider: string;
 }
 
-export interface AlertFilters {
-  severity?: string[];
-  status?: string[];
-  dateRange?: { start: string; end: string };
-  assignedTo?: string;
-  ruleId?: string;
-}
-
-export interface CaseFilters {
-  status?: string[];
-  priority?: string[];
-  fraudType?: string[];
-  dateRange?: { start: string; end: string };
-  assignedTo?: string;
-}
-
-// Pagination Types
-export interface PaginationParams {
-  page: number;
-  size: number;
-  sort?: string;
-  direction?: "asc" | "desc";
-}
-
-export interface PaginatedResponse<T> {
-  content: T[];
-  totalElements: number;
-  totalPages: number;
-  size: number;
-  number: number;
-  first: boolean;
-  last: boolean;
-}
-
-// API Response Types
-export interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: string;
-  message?: string;
-}
-
-// WebSocket Types
-export interface WebSocketMessage {
-  type: string;
-  data: any;
-  timestamp: string;
-}
-
-// Rule Types
-export interface FraudRule {
+export interface Explanation {
   id: string;
-  name: string;
-  description: string;
-  ruleType: string;
-  conditions: any;
-  actions: any;
-  enabled: boolean;
-  priority: number;
+  alertId: string;
+  cause: string;
+  explanation: string;
+  suggestion: string;
+  confidence: number;
+  provider: string;
   createdAt: string;
-  updatedAt: string;
 }
 
-// Profile Types
-export interface BehavioralProfile {
-  customerId: string;
-  averageAmount: number;
-  transactionFrequency: number;
-  preferredMerchants: string[];
-  typicalLocations: string[];
-  riskScore: number;
+export interface FraudPattern {
+  id: string;
+  patternName: string;
+  patternDescription: string;
+  occurrences: number;
+  confidence: number;
+  lastTriggered: string | null;
+}
+
+/* ---------- Behavioural ---------- */
+
+export type TrustLevel = "TRUSTED" | "UNKNOWN" | "SUSPICIOUS" | "BLACKLISTED";
+
+export interface Device {
+  id: string;
+  userId: string;
+  fingerprint: string;
+  firstSeen: string;
+  lastSeen: string;
+  usageCount: number | null;
+  riskScore: number | null;
+  blacklisted: boolean;
+  trustLevel: TrustLevel;
+}
+
+export interface UserProfile {
+  id: string;
+  userId: string;
+  averageTransactionAmount: number;
+  transactionCount: number | null;
+  countriesUsed: string[] | null;
+  devicesUsed: string[] | null;
+  typicalTransactionHour: number | null;
+  riskScore: number | null;
   lastUpdated: string;
 }
 
+export interface VelocitySnapshot {
+  userId: string;
+  count10Min: number;
+  count1Hour: number;
+  count24Hours: number;
+  amount10Min: number;
+  amount1Hour: number;
+  amount24Hours: number;
+  distinctMerchants1Hour: number;
+  distinctCountries1Hour: number;
+  velocityRisk: number;
+  rapidActivityDetected: boolean;
+}
+
+/* ---------- Analytics ---------- */
+
+export interface DashboardStats {
+  totalTransactions: number;
+  flaggedTransactions: number;
+  approvedTransactions: number;
+  pendingTransactions: number;
+  totalAlerts: number;
+  openAlerts: number;
+  averageRiskScore: number;
+  fraudRate: number;
+  totalAuditEvents: number;
+}
+
+export interface FraudTrendPoint {
+  date: string;
+  totalTransactions: number;
+  flaggedTransactions: number;
+  fraudRate: number;
+}
+
+export interface FraudTrend {
+  points: FraudTrendPoint[];
+}
+
+export interface MerchantRisk {
+  merchantId: string;
+  flaggedCount: number;
+}
+
+export interface GeographicRisk {
+  country: string;
+  totalTransactions: number;
+  flaggedTransactions: number;
+  fraudRate: number;
+}
+
+/* ---------- Events ---------- */
+
+export interface FraudEventRecord {
+  eventId: string;
+  aggregateId: string;
+  eventType: string;
+  occurredAt: string;
+  payload: Record<string, unknown> | null;
+  actor: string | null;
+}
+
+/* ---------- Demo ---------- */
+
+export interface SeedResult {
+  transactionsCreated: number;
+  transactionsFlagged: number;
+  alertsCreated: number;
+  casesCreated: number;
+  skipped: boolean;
+  message: string;
+}
+
+/* Phase 7 platform surfaces: scams, networks, identity, AML, autonomy,
+   strategy, generative-AI defence, disputes, governance, integrations. */
+export * from "./platform";
+export * from "./security";

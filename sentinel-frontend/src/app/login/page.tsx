@@ -1,161 +1,239 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { Shield, Zap, Loader2 } from 'lucide-react';
-import { useAuth } from '@/lib/hooks/useAuth';
-import { useToast } from '@/lib/hooks/useToast';
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { motion } from "framer-motion";
+import { ArrowRight, FileText, Gauge, ShieldCheck } from "lucide-react";
+import { apiClient, ApiError } from "@/lib/api-client";
+import { useAuthStore } from "@/store/auth-store";
+import { toast } from "@/lib/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Logo } from "@/components/layout/Logo";
+import { MfaStep } from "@/components/security/MfaStep";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+
+const schema = z.object({
+  email: z.string().min(1, "Enter your work email").email("Enter a valid email address"),
+  password: z.string().min(8, "Password must be at least 8 characters"),
+});
+
+type FormValues = z.infer<typeof schema>;
+
+const PROOF_POINTS = [
+  {
+    icon: Gauge,
+    title: "Thirty minutes becomes three",
+    body: "The agent gathers the evidence and drafts the narrative. The analyst reviews and signs.",
+  },
+  {
+    icon: FileText,
+    title: "Every decision is a record",
+    body: "Each agent run is persisted with its prompt, response and confidence, and can be replayed.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Advisory, never automatic",
+    body: "Tracelight recommends. A human closes the case. That boundary is enforced in the product.",
+  },
+];
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login } = useAuth();
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    email: '',
-    password: '',
+  const signIn = useAuthStore((state) => state.signIn);
+  const pendingMfa = useAuthStore((state) => state.pendingMfa);
+  const cancelMfa = useAuthStore((state) => state.cancelMfa);
+  const [submitting, setSubmitting] = useState(false);
+
+  const {
+    register,
+    handleSubmit,
+    setError,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { email: "", password: "" },
   });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+  useEffect(() => {
+    if (apiClient.isAuthenticated()) router.replace("/dashboard");
+  }, [router]);
 
+  const onSubmit = async (values: FormValues) => {
+    setSubmitting(true);
     try {
-      await login(formData.email, formData.password);
-      toast({
-        title: 'Success',
-        description: 'Welcome back to SentinelAI',
-      });
-      router.push('/dashboard');
-    } catch (error: any) {
-      toast({
-        title: 'Login Failed',
-        description: error.message || 'Invalid credentials',
-        variant: 'destructive',
-      });
+      const result = await signIn(values.email, values.password);
+      // A second factor means the password was right but the sign-in is not
+      // finished. The panel switches to the code step rather than navigating.
+      if (result.mfaRequired) {
+        setSubmitting(false);
+        return;
+      }
+      toast.success("Signed in", "Welcome back to Tracelight.");
+      router.replace(result.mustChangePassword ? "/settings?tab=security" : "/dashboard");
+    } catch (error) {
+      const message =
+        error instanceof ApiError ? error.message : "Sign-in failed. Try again.";
+      // Attach the failure to the form as well as the toast, so the reason sits
+      // next to the fields the user has to correct.
+      setError("password", { message });
+      toast.fromError(error, "Could not sign in");
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-primary/20 via-transparent to-transparent rounded-full blur-3xl animate-pulse" />
-        <div className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-accent/20 via-transparent to-transparent rounded-full blur-3xl animate-pulse" />
-      </div>
-
-      <div className="relative z-10 w-full max-w-md px-4">
-        {/* Logo and Title */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-accent mb-4 shadow-lg shadow-primary/50">
-            <Shield className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent mb-2">
-            SentinelAI
-          </h1>
-          <p className="text-muted-foreground">
-            AI-Powered Fraud Detection Platform
-          </p>
+    <div className="grid min-h-screen bg-page lg:grid-cols-[1fr_minmax(0,32rem)]">
+      {/* Narrative panel — the pitch, visible while someone signs in. */}
+      <section className="relative hidden flex-col justify-between overflow-hidden bg-surface p-12 lg:flex">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-[0.55]"
+          style={{
+            backgroundImage:
+              "radial-gradient(circle at 18% 12%, var(--primary-wash), transparent 42%), radial-gradient(circle at 82% 78%, var(--primary-wash), transparent 46%)",
+          }}
+        />
+        <div className="relative">
+          <Logo />
         </div>
 
-        {/* Login Card */}
-        <Card className="backdrop-blur-xl bg-card/80">
-          <CardHeader>
-            <CardTitle>Welcome Back</CardTitle>
-            <CardDescription>
-              Sign in to access your fraud detection dashboard
-            </CardDescription>
-          </CardHeader>
+        <div className="relative max-w-lg space-y-10">
+          <div className="space-y-4">
+            <h2 className="text-3xl font-semibold leading-tight tracking-tight text-ink">
+              Every other fraud tool gives you a score.
+              <span className="block text-primary">Tracelight gives you the case file.</span>
+            </h2>
+            <p className="text-sm leading-relaxed text-ink-secondary">
+              Score transactions, triage the queue, and let the investigation agent write
+              the analyst-ready narrative — with an audit trail a regulator can read.
+            </p>
+          </div>
 
-          <form onSubmit={handleSubmit}>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="admin@sentinelai.com"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="password">Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  required
-                  disabled={loading}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-sm">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" className="rounded" />
-                  <span className="text-muted-foreground">Remember me</span>
-                </label>
-                <a href="#" className="text-primary hover:underline">
-                  Forgot password?
-                </a>
-              </div>
-            </CardContent>
-
-            <CardFooter className="flex flex-col gap-4">
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={loading}
-                variant="glow"
+          <ul className="space-y-5">
+            {PROOF_POINTS.map((point, index) => (
+              <motion.li
+                key={point.title}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.08 * index + 0.1, duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                className="flex gap-3"
               >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Signing in...
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    Sign In
-                  </>
-                )}
-              </Button>
-
-              <p className="text-sm text-center text-muted-foreground">
-                Demo credentials: admin@sentinel.ai / Admin@123
-              </p>
-            </CardFooter>
-          </form>
-        </Card>
-
-        {/* Features */}
-        <div className="mt-8 grid grid-cols-3 gap-4 text-center">
-          <div>
-            <div className="text-2xl font-bold text-primary">99.9%</div>
-            <div className="text-xs text-muted-foreground">Uptime</div>
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-primary">10K+</div>
-            <div className="text-xs text-muted-foreground">TPS</div>
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-primary">&lt;60ms</div>
-            <div className="text-xs text-muted-foreground">Latency</div>
-          </div>
+                <span className="grid size-8 shrink-0 place-items-center rounded-md border border-line bg-surface-raised">
+                  <point.icon className="size-4 text-primary" />
+                </span>
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium text-ink">{point.title}</p>
+                  <p className="text-xs leading-relaxed text-ink-secondary">{point.body}</p>
+                </div>
+              </motion.li>
+            ))}
+          </ul>
         </div>
-      </div>
+
+        <p className="relative text-xs text-ink-muted">
+          Tracelight — AI fraud intelligence
+        </p>
+      </section>
+
+      {/* Form panel */}
+      <section className="flex flex-col justify-center px-6 py-10 sm:px-12">
+        <div className="mb-8 flex items-center justify-between lg:hidden">
+          <Logo />
+          <ThemeToggle />
+        </div>
+
+        <div className="mx-auto w-full max-w-sm">
+          {pendingMfa ? (
+            <MfaStep
+              email={pendingMfa.email}
+              methods={pendingMfa.methods}
+              onCancel={cancelMfa}
+              onVerified={() => {
+                toast.success("Signed in", "Welcome back to Tracelight.");
+                router.replace("/dashboard");
+              }}
+            />
+          ) : (
+            <>
+          <div className="mb-7 space-y-1.5">
+            <h1 className="text-xl font-semibold tracking-tight text-ink">Sign in</h1>
+            <p className="text-sm text-ink-secondary">
+              Use your Tracelight analyst account.
+            </p>
+          </div>
+
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+            <div className="space-y-1.5">
+              <Label htmlFor="email">Work email</Label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="analyst@yourbank.com"
+                aria-invalid={Boolean(errors.email)}
+                aria-describedby={errors.email ? "email-error" : undefined}
+                {...register("email")}
+              />
+              {errors.email ? (
+                <p id="email-error" role="alert" className="text-xs text-critical">
+                  {errors.email.message}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete="current-password"
+                placeholder="••••••••"
+                aria-invalid={Boolean(errors.password)}
+                aria-describedby={errors.password ? "password-error" : undefined}
+                {...register("password")}
+              />
+              {errors.password ? (
+                <p id="password-error" role="alert" className="text-xs text-critical">
+                  {errors.password.message}
+                </p>
+              ) : null}
+            </div>
+
+            <Button type="submit" className="w-full" loading={submitting} size="lg">
+              {!submitting && <ArrowRight />}
+              Sign in
+            </Button>
+          </form>
+
+          <p className="mt-4 text-center text-xs">
+            <Link
+              href="/forgot-password"
+              className="font-medium text-ink-secondary underline-offset-4 hover:text-ink hover:underline"
+            >
+              Forgot your password?
+            </Link>
+          </p>
+
+          <p className="mt-6 text-center text-xs text-ink-secondary">
+            No account yet?{" "}
+            <Link
+              href="/register"
+              className="font-medium text-primary underline-offset-4 hover:underline"
+            >
+              Create one
+            </Link>
+          </p>
+            </>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
-

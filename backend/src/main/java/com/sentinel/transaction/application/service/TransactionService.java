@@ -6,8 +6,8 @@ import com.sentinel.audit.domain.model.EntityType;
 import com.sentinel.common.exception.BusinessException;
 import com.sentinel.common.exception.ResourceNotFoundException;
 import com.sentinel.transaction.adapter.out.persistence.IdempotencyKeyRepository;
+import com.sentinel.common.util.Enums;
 import com.sentinel.transaction.adapter.out.persistence.TransactionRepository;
-import com.sentinel.transaction.application.dto.BulkUploadResponse;
 import com.sentinel.transaction.application.dto.IngestTransactionRequest;
 import com.sentinel.transaction.application.dto.TransactionResponse;
 import com.sentinel.transaction.domain.model.IdempotencyKey;
@@ -15,25 +15,15 @@ import com.sentinel.transaction.domain.model.Transaction;
 import com.sentinel.transaction.domain.model.TransactionStatus;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVRecord;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Currency;
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -86,59 +76,12 @@ public class TransactionService {
         return TransactionResponse.from(saved);
     }
 
-    @Transactional
-    public BulkUploadResponse uploadCsvTransactions(MultipartFile file, UUID organizationId) {
-        int totalProcessed = 0;
-        int totalFailed = 0;
-        List<String> errors = new ArrayList<>();
-
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream()));
-             CSVParser csvParser = CSVFormat.DEFAULT.builder()
-                     .setHeader()
-                     .setSkipHeaderRecord(true)
-                     .setTrim(true)
-                     .build()
-                     .parse(reader)) {
-
-            for (CSVRecord record : csvParser) {
-                try {
-                    IngestTransactionRequest request = IngestTransactionRequest.builder()
-                            .transactionExternalId(record.get("transactionExternalId"))
-                            .userId(record.get("userId"))
-                            .merchantId(record.get("merchantId"))
-                            .amount(new BigDecimal(record.get("amount")))
-                            .currency(record.get("currency"))
-                            .country(record.isMapped("country") ? record.get("country") : null)
-                            .deviceId(record.isMapped("deviceId") ? record.get("deviceId") : null)
-                            .ipAddress(record.isMapped("ipAddress") ? record.get("ipAddress") : null)
-                            .timestamp(Instant.parse(record.get("timestamp")))
-                            .build();
-
-                    ingestTransaction(request, organizationId, UUID.randomUUID().toString());
-                    totalProcessed++;
-                } catch (Exception e) {
-                    totalFailed++;
-                    errors.add("Row " + record.getRecordNumber() + ": " + e.getMessage());
-                }
-            }
-        } catch (Exception e) {
-            throw new BusinessException("CSV_PARSE_ERROR", "Failed to parse CSV file: " + e.getMessage());
-        }
-
-        auditService.logAction(organizationId, organizationId, AuditAction.CSV_UPLOADED, EntityType.TRANSACTION);
-        return BulkUploadResponse.builder()
-                .totalProcessed(totalProcessed)
-                .totalFailed(totalFailed)
-                .errors(errors.isEmpty() ? null : errors)
-                .build();
-    }
-
     @Transactional(readOnly = true)
     public Page<TransactionResponse> findByOrganization(UUID organizationId, String status, Pageable pageable) {
         Page<Transaction> page;
         if (status != null && !status.isBlank()) {
             page = transactionRepository.findByOrganizationIdAndStatus(
-                    organizationId, TransactionStatus.valueOf(status.toUpperCase()), pageable);
+                    organizationId, Enums.parse(TransactionStatus.class, status, "status"), pageable);
         } else {
             page = transactionRepository.findByOrganizationId(organizationId, pageable);
         }

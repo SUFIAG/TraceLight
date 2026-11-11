@@ -1,228 +1,284 @@
-'use client';
+"use client";
 
-import React, { useEffect, useState } from 'react';
-import { KPICard } from '@/components/dashboard/KPICard';
-import { RealtimeChart } from '@/components/dashboard/RealtimeChart';
-import { AIAgentChat } from '@/components/ai/AIAgentChat';
+import { useMemo } from "react";
+import Link from "next/link";
 import {
-  DollarSign,
-  Shield,
-  AlertTriangle,
-  TrendingUp,
   Activity,
-  Users,
-} from 'lucide-react';
-import { dashboardApi } from '@/lib/api/dashboard';
-import { useToast } from '@/lib/hooks/useToast';
+  AlertOctagon,
+  Bell,
+  CheckCircle2,
+  Clock,
+  Database,
+  FileClock,
+  Gauge,
+  Globe2,
+  Percent,
+  ShieldCheck,
+} from "lucide-react";
+import { AppShell } from "@/components/layout/AppShell";
+import { StatTile } from "@/components/dashboard/StatTile";
+import { RiskGauge } from "@/components/dashboard/RiskGauge";
+import { LiveThreatFeed } from "@/components/dashboard/LiveThreatFeed";
+import { ThreatMap } from "@/components/dashboard/ThreatMap";
+import { ChartFrame } from "@/components/charts/ChartFrame";
+import { FraudTrendChart, TREND_SERIES } from "@/components/charts/FraudTrendChart";
+import { MerchantRiskChart } from "@/components/charts/MerchantRiskChart";
+import { EmptyState, ErrorState } from "@/components/data/States";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { useDashboard, useFraudTrend, useGeographicRisk, useTopMerchants } from "@/lib/hooks/useApi";
+import { compactNumber, exactNumber, percent } from "@/lib/format";
+import type { FraudTrendPoint } from "@/types";
 
 export default function DashboardPage() {
-  const { toast } = useToast();
-  const [stats, setStats] = useState<any>(null);
-  const [transactionData, setTransactionData] = useState<any[]>([]);
-  const [fraudData, setFraudData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const dashboard = useDashboard();
+  const trend = useFraudTrend(14);
+  const merchants = useTopMerchants(8);
+  const geography = useGeographicRisk();
 
-  useEffect(() => {
-    loadDashboardData();
+  const stats = dashboard.data;
+  const loading = dashboard.isLoading;
+  const points = trend.data?.points ?? [];
 
-    // Set up real-time updates every 10 seconds
-    const interval = setInterval(loadDashboardData, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const loadDashboardData = async () => {
-    try {
-      const data = await dashboardApi.getStats();
-      setStats(data);
-
-      // Generate demo chart data (replace with real API data)
-      const now = new Date();
-      const chartData = Array.from({ length: 24 }, (_, i) => ({
-        name: `${23 - i}h`,
-        transactions: Math.floor(Math.random() * 1000) + 500,
-        fraud: Math.floor(Math.random() * 50) + 10,
-        blocked: Math.floor(Math.random() * 30) + 5,
-      })).reverse();
-
-      setTransactionData(chartData);
-      setFraudData(chartData);
-      setLoading(false);
-    } catch (error: any) {
-      console.error('Failed to load dashboard data:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to load dashboard data',
-        variant: 'destructive',
-      });
-      setLoading(false);
-    }
-  };
-
-  const handleSendMessage = async (message: string): Promise<string> => {
-    try {
-      // TODO: Connect to AI agent API
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Demo responses based on keywords
-      if (message.toLowerCase().includes('fraud')) {
-        return `Based on current data, we've detected ${stats?.fraudDetected || 0} fraudulent transactions today. The fraud rate is ${stats?.fraudRate || 0}%. The most common fraud patterns are:
-        
-1. Velocity abuse (45%)
-2. Suspicious geolocation (30%)
-3. Abnormal transaction amounts (25%)
-
-Would you like me to investigate any specific pattern?`;
-      }
-
-      if (message.toLowerCase().includes('alert')) {
-        return `You currently have ${stats?.activeAlerts || 0} active alerts. ${stats?.criticalAlerts || 0} are marked as critical priority. The most recent alert was triggered 2 minutes ago for a high-risk transaction.`;
-      }
-
-      return `I've analyzed your query: "${message}". In production, I would use advanced NLP and our fraud detection algorithms to provide detailed insights. Current system status: All fraud detection engines are operational.`;
-    } catch (error) {
-      return 'Sorry, I encountered an error processing your request.';
-    }
-  };
+  // Sparklines and deltas are derived from the trend series rather than
+  // requested separately: the backend already returns the daily buckets, and a
+  // second round trip for the same numbers would only add latency.
+  const series = useMemo(() => deriveSeries(points), [points]);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-4xl font-bold bg-gradient-to-r from-primary via-accent to-primary bg-clip-text text-transparent">
-          Fraud Detection Dashboard
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          Real-time monitoring and AI-powered fraud detection
-        </p>
-      </div>
+    <AppShell title="Overview" subtitle="Portfolio health and the queue waiting on your team">
+      <div className="space-y-6">
+        {dashboard.error ? (
+          <Card>
+            <ErrorState error={dashboard.error} onRetry={() => dashboard.mutate()} />
+          </Card>
+        ) : (
+          <>
+            {/* ---------- Hero: the single number that decides the shift ---------- */}
+            <section className="relative overflow-hidden rounded-lg border border-line bg-surface">
+              <div className="surface-grid pointer-events-none absolute inset-0" aria-hidden="true" />
+              <div className="surface-glow pointer-events-none absolute inset-0" aria-hidden="true" />
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KPICard
-          title="Total Transactions"
-          value={stats?.totalTransactions?.toLocaleString() || '0'}
-          change={stats?.transactionGrowth || 0}
-          trend={stats?.transactionGrowth > 0 ? 'up' : 'down'}
-          icon={<Activity className="w-4 h-4" />}
-          loading={loading}
-        />
+              <div className="relative grid gap-6 p-5 lg:grid-cols-[auto_1fr] lg:items-center lg:p-6">
+                <div className="flex items-center justify-center lg:justify-start">
+                  <RiskGauge score={stats?.averageRiskScore} size={180} />
+                </div>
 
-        <KPICard
-          title="Transaction Volume"
-          value={`$${(stats?.totalValue / 1000000 || 0).toFixed(1)}M`}
-          change={stats?.volumeGrowth || 0}
-          trend={stats?.volumeGrowth > 0 ? 'up' : 'down'}
-          icon={<DollarSign className="w-4 h-4" />}
-          loading={loading}
-        />
-
-        <KPICard
-          title="Fraud Detected"
-          value={stats?.fraudDetected || 0}
-          change={stats?.fraudGrowth || 0}
-          trend={stats?.fraudGrowth < 0 ? 'up' : 'down'}
-          icon={<Shield className="w-4 h-4" />}
-          loading={loading}
-        />
-
-        <KPICard
-          title="Fraud Rate"
-          value={`${stats?.fraudRate?.toFixed(2) || 0}%`}
-          change={stats?.fraudRateChange || 0}
-          trend={stats?.fraudRateChange < 0 ? 'up' : 'down'}
-          icon={<TrendingUp className="w-4 h-4" />}
-          loading={loading}
-        />
-
-        <KPICard
-          title="Active Alerts"
-          value={stats?.activeAlerts || 0}
-          change={stats?.alertGrowth || 0}
-          trend="neutral"
-          icon={<AlertTriangle className="w-4 h-4" />}
-          loading={loading}
-        />
-
-        <KPICard
-          title="Active Cases"
-          value={stats?.activeCases || 0}
-          change={stats?.caseGrowth || 0}
-          trend="neutral"
-          icon={<Users className="w-4 h-4" />}
-          loading={loading}
-        />
-      </div>
-
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RealtimeChart
-          title="Transaction Volume (Last 24h)"
-          data={transactionData}
-          dataKeys={[
-            { key: 'transactions', color: '#00D9FF', label: 'Transactions' },
-          ]}
-          type="area"
-          height={300}
-        />
-
-        <RealtimeChart
-          title="Fraud Detection (Last 24h)"
-          data={fraudData}
-          dataKeys={[
-            { key: 'fraud', color: '#FF4444', label: 'Fraud Detected' },
-            { key: 'blocked', color: '#FFA500', label: 'Blocked' },
-          ]}
-          type="line"
-          height={300}
-        />
-      </div>
-
-      {/* AI Agent & Activity Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <AIAgentChat
-          agentName="Sentinel AI Analyst"
-          placeholder="Ask me about fraud patterns, alerts, or system status..."
-          onSendMessage={handleSendMessage}
-        />
-
-        {/* Recent Activity */}
-        <div className="space-y-4">
-          <h2 className="text-2xl font-bold">Recent Activity</h2>
-          <div className="space-y-3">
-            {[
-              { type: 'fraud', message: 'High-risk transaction detected', time: '2 min ago', severity: 'critical' },
-              { type: 'alert', message: 'Velocity threshold exceeded', time: '5 min ago', severity: 'high' },
-              { type: 'case', message: 'Case #1234 updated', time: '10 min ago', severity: 'medium' },
-              { type: 'fraud', message: 'Suspicious device fingerprint', time: '15 min ago', severity: 'high' },
-              { type: 'alert', message: 'Geolocation mismatch detected', time: '20 min ago', severity: 'medium' },
-            ].map((activity, index) => (
-              <div
-                key={index}
-                className="p-4 rounded-lg border border-primary/10 bg-card/50 backdrop-blur-sm hover:border-primary/30 transition-all"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className="font-medium">{activity.message}</p>
-                    <p className="text-xs text-muted-foreground mt-1">{activity.time}</p>
-                  </div>
-                  <span
-                    className={`px-2 py-1 rounded text-xs font-semibold ${
-                      activity.severity === 'critical'
-                        ? 'bg-red-500/10 text-red-400'
-                        : activity.severity === 'high'
-                        ? 'bg-orange-500/10 text-orange-400'
-                        : 'bg-yellow-500/10 text-yellow-400'
-                    }`}
-                  >
-                    {activity.severity}
-                  </span>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <StatTile
+                    label="Transactions scored"
+                    numeric={stats?.totalTransactions}
+                    format={(value) => compactNumber(Math.round(value))}
+                    footnote="All time, this organisation"
+                    icon={Activity}
+                    loading={loading}
+                    trend={series.total}
+                    delta={series.deltaTotal}
+                    deltaIsGood="up"
+                    href="/transactions"
+                  />
+                  <StatTile
+                    label="Flagged"
+                    numeric={stats?.flaggedTransactions}
+                    format={(value) => compactNumber(Math.round(value))}
+                    footnote="Held for review"
+                    icon={AlertOctagon}
+                    tone="serious"
+                    loading={loading}
+                    trend={series.flagged}
+                    delta={series.deltaFlagged}
+                    deltaIsGood="down"
+                    href="/transactions"
+                  />
+                  <StatTile
+                    label="Fraud rate"
+                    numeric={stats?.fraudRate}
+                    format={(value) => `${value.toFixed(2)}%`}
+                    footnote="Flagged ÷ scored"
+                    icon={Percent}
+                    tone="warning"
+                    loading={loading}
+                    trend={series.rate}
+                    delta={series.deltaRate}
+                    deltaIsGood="down"
+                  />
+                  <StatTile
+                    label="Open alerts"
+                    numeric={stats?.openAlerts}
+                    format={(value) => exactNumber(Math.round(value))}
+                    footnote="Awaiting an analyst"
+                    icon={Bell}
+                    tone={stats && stats.openAlerts > 0 ? "critical" : "good"}
+                    loading={loading}
+                    href="/alerts"
+                  />
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+            </section>
+
+            {/* ---------- Secondary figures ---------- */}
+            <section aria-label="Supporting figures" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <StatTile
+                label="Auto-cleared"
+                numeric={stats?.approvedTransactions}
+                format={(value) => compactNumber(Math.round(value))}
+                footnote="Passed without an analyst"
+                icon={CheckCircle2}
+                tone="good"
+                loading={loading}
+              />
+              <StatTile
+                label="Awaiting analysis"
+                numeric={stats?.pendingTransactions}
+                format={(value) => compactNumber(Math.round(value))}
+                footnote="Ingested, not yet scored"
+                icon={Clock}
+                loading={loading}
+              />
+              <StatTile
+                label="Total alerts raised"
+                numeric={stats?.totalAlerts}
+                format={(value) => compactNumber(Math.round(value))}
+                footnote="Open and closed"
+                icon={ShieldCheck}
+                loading={loading}
+                href="/alerts"
+              />
+              <StatTile
+                label="Audit events"
+                numeric={stats?.totalAuditEvents}
+                format={(value) => compactNumber(Math.round(value))}
+                footnote="Immutable action record"
+                icon={FileClock}
+                loading={loading}
+              />
+            </section>
+
+            {stats && stats.totalTransactions === 0 && (
+              <Card>
+                <EmptyState
+                  icon={Database}
+                  title="No transactions yet"
+                  description="Load the demo dataset to populate this organisation with realistic transactions, alerts and cases generated through the live fraud pipeline, or upload a CSV from the Transactions page."
+                  action={
+                    <p className="text-xs text-ink-muted">
+                      Press <kbd className="rounded border border-line px-1">Ctrl</kbd>
+                      <kbd className="ml-0.5 rounded border border-line px-1">K</kbd> and choose{" "}
+                      <span className="font-medium text-ink">Load demo data</span>.
+                    </p>
+                  }
+                />
+              </Card>
+            )}
+
+            {/* ---------- Trend + live feed ---------- */}
+            <section className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
+              <ChartFrame
+                title="Volume and flagged subset"
+                description="Last 14 days, bucketed by transaction time"
+                series={TREND_SERIES}
+              >
+                {trend.isLoading ? (
+                  <Skeleton className="h-[260px] w-full" />
+                ) : trend.error ? (
+                  <ErrorState error={trend.error} onRetry={() => trend.mutate()} />
+                ) : points.length ? (
+                  <FraudTrendChart points={points} />
+                ) : (
+                  <EmptyState
+                    title="No trend data yet"
+                    description="Once transactions are scored, the daily trend appears here."
+                  />
+                )}
+              </ChartFrame>
+
+              <LiveThreatFeed limit={7} />
+            </section>
+
+            {/* ---------- Merchants + geography ---------- */}
+            <section className="grid gap-4 xl:grid-cols-2">
+              <ChartFrame title="Highest-risk merchants" description="Ranked by flagged transaction count">
+                {merchants.isLoading ? (
+                  <Skeleton className="h-[220px] w-full" />
+                ) : merchants.error ? (
+                  <ErrorState error={merchants.error} onRetry={() => merchants.mutate()} />
+                ) : merchants.data?.length ? (
+                  <MerchantRiskChart merchants={merchants.data} />
+                ) : (
+                  <EmptyState
+                    title="No flagged merchants"
+                    description="Merchants appear here once transactions are flagged."
+                  />
+                )}
+              </ChartFrame>
+
+              <Card className="flex flex-col">
+                <CardHeader className="flex-row items-start justify-between space-y-0">
+                  <div className="space-y-1">
+                    <CardTitle className="flex items-center gap-2">
+                      <Globe2 className="size-4 text-ink-muted" aria-hidden="true" />
+                      Geographic exposure
+                    </CardTitle>
+                    <CardDescription>Marker size is volume, colour is fraud rate</CardDescription>
+                  </div>
+                  <Link
+                    href="/analytics"
+                    className="focus-ring rounded-md px-2 py-1 text-xs text-primary hover:underline"
+                  >
+                    Analytics
+                  </Link>
+                </CardHeader>
+                <CardContent className="flex-1 pt-2">
+                  {geography.isLoading ? (
+                    <Skeleton className="h-[300px] w-full" />
+                  ) : geography.error ? (
+                    <ErrorState error={geography.error} onRetry={() => geography.mutate()} />
+                  ) : geography.data?.length ? (
+                    <ThreatMap rows={geography.data} />
+                  ) : (
+                    <EmptyState
+                      title="No geographic data"
+                      description="Countries appear once transactions carry a country code."
+                    />
+                  )}
+                </CardContent>
+              </Card>
+            </section>
+          </>
+        )}
       </div>
-    </div>
+    </AppShell>
   );
 }
 
+/**
+ * Turns the daily trend into sparkline series and period-over-period deltas.
+ *
+ * The comparison splits the window in half rather than comparing the last two
+ * days: a single day is noisy enough that the arrow would flip constantly and
+ * stop meaning anything.
+ */
+function deriveSeries(points: FraudTrendPoint[]) {
+  const total = points.map((point) => point.totalTransactions);
+  const flagged = points.map((point) => point.flaggedTransactions);
+  const rate = points.map((point) => point.fraudRate);
+
+  const changeBetweenHalves = (values: number[]) => {
+    if (values.length < 4) return undefined;
+    const middle = Math.floor(values.length / 2);
+    const sum = (slice: number[]) => slice.reduce((carry, value) => carry + value, 0);
+    const earlier = sum(values.slice(0, middle));
+    const later = sum(values.slice(middle));
+    if (earlier === 0) return undefined;
+    return ((later - earlier) / earlier) * 100;
+  };
+
+  return {
+    total,
+    flagged,
+    rate,
+    deltaTotal: changeBetweenHalves(total),
+    deltaFlagged: changeBetweenHalves(flagged),
+    deltaRate: changeBetweenHalves(rate),
+  };
+}

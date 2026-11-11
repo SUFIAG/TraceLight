@@ -1,44 +1,38 @@
-HELP.md
+# Build output
 target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+build/
+dist/
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-### IntelliJ IDEA ###
-.idea
+# IDE
+.idea/
 *.iws
 *.iml
 *.ipr
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
 .vscode/
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated
 
-### Frontend (Next.js) ###
+# Maven wrapper jar
+**/.mvn/wrapper/maven-wrapper.jar
+
+# Frontend
 sentinel-frontend/node_modules/
 sentinel-frontend/.next/
 sentinel-frontend/out/
-sentinel-frontend/dist/
-sentinel-frontend/.env*.local
-sentinel-frontend/package-lock.json
-sentinel-frontend/yarn.lock
-sentinel-frontend/pnpm-lock.yaml
 
+# Secrets — never commit
+.env
+.env.local
+*.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and build state
+logs/
+*.log
+*.tsbuildinfo

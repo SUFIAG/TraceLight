@@ -21,11 +21,23 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
 
     Page<Transaction> findByOrganizationIdAndStatus(UUID organizationId, TransactionStatus status, Pageable pageable);
 
-    @Query("SELECT t FROM Transaction t WHERE t.userId = :userId AND t.timestamp > :since ORDER BY t.timestamp DESC")
-    List<Transaction> findRecentByUserId(@Param("userId") String userId, @Param("since") Instant since);
+    // Behavioural queries below are keyed on userId, which is a customer identifier
+    // supplied by the tenant and therefore NOT globally unique. Every one of them is
+    // scoped by organizationId so one tenant's history can never influence another
+    // tenant's risk score.
 
-    @Query("SELECT COUNT(t) FROM Transaction t WHERE t.userId = :userId AND t.timestamp > :since")
-    long countRecentByUserId(@Param("userId") String userId, @Param("since") Instant since);
+    @Query("SELECT t FROM Transaction t WHERE t.organizationId = :orgId AND t.userId = :userId " +
+            "AND t.timestamp > :since ORDER BY t.timestamp DESC")
+    List<Transaction> findRecentByUserId(@Param("orgId") UUID organizationId,
+                                         @Param("userId") String userId,
+                                         @Param("since") Instant since);
+
+    @Query("SELECT COUNT(t) FROM Transaction t WHERE t.organizationId = :orgId AND t.userId = :userId " +
+            "AND t.timestamp > :since AND t.timestamp <= :until")
+    long countInWindowByUserId(@Param("orgId") UUID organizationId,
+                               @Param("userId") String userId,
+                               @Param("since") Instant since,
+                               @Param("until") Instant until);
 
     @Query("SELECT COUNT(t) FROM Transaction t WHERE t.organizationId = :orgId AND t.createdAt > :since")
     long countByOrganizationIdSince(@Param("orgId") UUID orgId, @Param("since") Instant since);
@@ -33,22 +45,48 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     @Query("SELECT COUNT(t) FROM Transaction t WHERE t.organizationId = :orgId AND t.status = :status AND t.createdAt > :since")
     long countByOrganizationIdAndStatusSince(@Param("orgId") UUID orgId, @Param("status") TransactionStatus status, @Param("since") Instant since);
 
-    @Query("SELECT COALESCE(AVG(t.amount), 0) FROM Transaction t WHERE t.userId = :userId")
-    BigDecimal findAverageAmountByUserId(@Param("userId") String userId);
+    @Query("SELECT COALESCE(AVG(t.amount), 0) FROM Transaction t " +
+            "WHERE t.organizationId = :orgId AND t.userId = :userId")
+    BigDecimal findAverageAmountByUserId(@Param("orgId") UUID organizationId,
+                                         @Param("userId") String userId);
 
-    @Query("SELECT t FROM Transaction t WHERE t.userId = :userId AND t.country IS NOT NULL ORDER BY t.timestamp DESC")
-    List<Transaction> findRecentWithCountryByUserId(@Param("userId") String userId, Pageable pageable);
+    /**
+     * The customer's country history as of {@code before}. Bounding on the
+     * transaction's own time rather than "now" means a backfilled or CSV-loaded
+     * transaction is judged against the history that preceded it, not against
+     * rows that were loaded in the same batch.
+     */
+    @Query("SELECT t FROM Transaction t WHERE t.organizationId = :orgId AND t.userId = :userId " +
+            "AND t.country IS NOT NULL AND t.timestamp < :before ORDER BY t.timestamp DESC")
+    List<Transaction> findCountryHistoryBefore(@Param("orgId") UUID organizationId,
+                                               @Param("userId") String userId,
+                                               @Param("before") Instant before,
+                                               Pageable pageable);
 
     List<Transaction> findByOrganizationIdAndUserId(UUID organizationId, String userId);
 
-    @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.userId = :userId AND t.timestamp > :since")
-    BigDecimal sumAmountByUserIdSince(@Param("userId") String userId, @Param("since") Instant since);
+    long countByOrganizationIdAndUserId(UUID organizationId, String userId);
 
-    @Query("SELECT COUNT(DISTINCT t.merchantId) FROM Transaction t WHERE t.userId = :userId AND t.timestamp > :since")
-    long countDistinctMerchantsByUserIdSince(@Param("userId") String userId, @Param("since") Instant since);
+    @Query("SELECT COALESCE(SUM(t.amount), 0) FROM Transaction t WHERE t.organizationId = :orgId " +
+            "AND t.userId = :userId AND t.timestamp > :since AND t.timestamp <= :until")
+    BigDecimal sumAmountInWindowByUserId(@Param("orgId") UUID organizationId,
+                                         @Param("userId") String userId,
+                                         @Param("since") Instant since,
+                                         @Param("until") Instant until);
 
-    @Query("SELECT COUNT(DISTINCT t.country) FROM Transaction t WHERE t.userId = :userId AND t.timestamp > :since")
-    long countDistinctCountriesByUserIdSince(@Param("userId") String userId, @Param("since") Instant since);
+    @Query("SELECT COUNT(DISTINCT t.merchantId) FROM Transaction t WHERE t.organizationId = :orgId " +
+            "AND t.userId = :userId AND t.timestamp > :since AND t.timestamp <= :until")
+    long countDistinctMerchantsInWindow(@Param("orgId") UUID organizationId,
+                                        @Param("userId") String userId,
+                                        @Param("since") Instant since,
+                                        @Param("until") Instant until);
+
+    @Query("SELECT COUNT(DISTINCT t.country) FROM Transaction t WHERE t.organizationId = :orgId " +
+            "AND t.userId = :userId AND t.timestamp > :since AND t.timestamp <= :until")
+    long countDistinctCountriesInWindow(@Param("orgId") UUID organizationId,
+                                        @Param("userId") String userId,
+                                        @Param("since") Instant since,
+                                        @Param("until") Instant until);
 
     // ----- Analytics / Reporting aggregations (Phase 4) -----
 
@@ -66,9 +104,12 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
     List<Object[]> findGeographicBreakdown(@Param("orgId") UUID orgId,
                                            @Param("flagged") TransactionStatus flagged);
 
-    @Query(value = "SELECT CAST(created_at AS DATE) AS day, COUNT(*) AS total, " +
-            "COUNT(*) FILTER (WHERE status = 'FLAGGED') AS flagged " +
-            "FROM transactions WHERE organization_id = :orgId AND created_at > :since " +
-            "GROUP BY CAST(created_at AS DATE) ORDER BY day", nativeQuery = true)
+    // Bucketed by the transaction's own timestamp rather than row insert time, so the
+    // trend reflects when activity happened, not when the data was loaded.
+    // "timestamp" is quoted because it is a reserved word in PostgreSQL.
+    @Query(value = "SELECT CAST(t.\"timestamp\" AS DATE) AS day, COUNT(*) AS total, " +
+            "COUNT(*) FILTER (WHERE t.status = 'FLAGGED') AS flagged " +
+            "FROM transactions t WHERE t.organization_id = :orgId AND t.\"timestamp\" > :since " +
+            "GROUP BY CAST(t.\"timestamp\" AS DATE) ORDER BY day", nativeQuery = true)
     List<Object[]> findDailyFraudTrend(@Param("orgId") UUID orgId, @Param("since") Instant since);
 }

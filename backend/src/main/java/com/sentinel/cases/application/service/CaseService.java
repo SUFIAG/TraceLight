@@ -3,6 +3,7 @@ package com.sentinel.cases.application.service;
 import com.sentinel.alert.application.dto.AlertResponse;
 import com.sentinel.alert.application.service.AlertService;
 import com.sentinel.audit.application.service.AuditService;
+import com.sentinel.auth.adapter.out.persistence.UserRepository;
 import com.sentinel.audit.domain.model.AuditAction;
 import com.sentinel.audit.domain.model.EntityType;
 import com.sentinel.cases.adapter.out.persistence.CaseHistoryRepository;
@@ -20,6 +21,7 @@ import com.sentinel.cases.domain.model.FraudCase;
 import com.sentinel.cases.domain.service.WorkflowEngine;
 import com.sentinel.common.exception.BusinessException;
 import com.sentinel.common.exception.ResourceNotFoundException;
+import com.sentinel.common.util.Enums;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -46,6 +48,7 @@ public class CaseService {
     private final AuditService auditService;
     private final NotificationService notificationService;
     private final WorkflowEngine workflowEngine;
+    private final UserRepository userRepository;
 
     @Transactional
     public CaseResponse createFromAlert(UUID organizationId, UUID createdBy, CreateCaseRequest request) {
@@ -57,7 +60,7 @@ public class CaseService {
         AlertResponse alert = alertService.findById(request.getAlertId(), organizationId);
 
         CasePriority priority = request.getPriority() != null && !request.getPriority().isBlank()
-                ? CasePriority.valueOf(request.getPriority().toUpperCase())
+                ? Enums.parse(CasePriority.class, request.getPriority(), "priority")
                 : mapPriority(alert.getSeverity());
 
         String title = request.getTitle() != null && !request.getTitle().isBlank()
@@ -88,7 +91,7 @@ public class CaseService {
                     organizationId, assignedTo, pageable);
         } else if (status != null && !status.isBlank()) {
             page = fraudCaseRepository.findByOrganizationIdAndStatusOrderByCreatedAtDesc(
-                    organizationId, CaseStatus.valueOf(status.toUpperCase()), pageable);
+                    organizationId, Enums.parse(CaseStatus.class, status, "status"), pageable);
         } else {
             page = fraudCaseRepository.findByOrganizationIdOrderByCreatedAtDesc(organizationId, pageable);
         }
@@ -105,7 +108,7 @@ public class CaseService {
                                      UpdateCaseStatusRequest request) {
         FraudCase fraudCase = loadOwned(organizationId, caseId);
         CaseStatus oldStatus = fraudCase.getStatus();
-        CaseStatus newStatus = CaseStatus.valueOf(request.getStatus().toUpperCase());
+        CaseStatus newStatus = Enums.parse(CaseStatus.class, request.getStatus(), "status");
 
         workflowEngine.validateTransition(oldStatus, newStatus);
 
@@ -114,7 +117,7 @@ public class CaseService {
                 throw new BusinessException("RESOLUTION_REQUIRED",
                         "A resolution is required to resolve a case");
             }
-            fraudCase.setResolution(CaseResolution.valueOf(request.getResolution().toUpperCase()));
+            fraudCase.setResolution(Enums.parse(CaseResolution.class, request.getResolution(), "resolution"));
             fraudCase.setResolvedAt(Instant.now());
         }
 
@@ -132,6 +135,15 @@ public class CaseService {
     @Transactional
     public CaseResponse assign(UUID organizationId, UUID userId, UUID caseId, AssignCaseRequest request) {
         FraudCase fraudCase = loadOwned(organizationId, caseId);
+
+        // The assignee id arrives from the client, so it must be a member of this
+        // organization. Without this check a case could be handed to a user in
+        // another tenant.
+        userRepository.findById(request.getAssigneeId())
+                .filter(user -> user.getOrganizationId().equals(organizationId))
+                .orElseThrow(() -> new BusinessException("INVALID_ASSIGNEE",
+                        "The assignee is not a member of this organization"));
+
         UUID oldAssignee = fraudCase.getAssignedTo();
         fraudCase.setAssignedTo(request.getAssigneeId());
 

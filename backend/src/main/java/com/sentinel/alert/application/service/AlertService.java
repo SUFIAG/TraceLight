@@ -9,6 +9,7 @@ import com.sentinel.audit.application.service.AuditService;
 import com.sentinel.audit.domain.model.AuditAction;
 import com.sentinel.audit.domain.model.EntityType;
 import com.sentinel.common.exception.ResourceNotFoundException;
+import com.sentinel.common.util.Enums;
 import com.sentinel.fraud.risk.domain.model.RiskLevel;
 import com.sentinel.fraud.risk.domain.model.RiskScore;
 import com.sentinel.fraud.rules.domain.model.RuleResult;
@@ -66,7 +67,7 @@ public class AlertService {
         Page<FraudAlert> page;
         if (status != null && !status.isBlank()) {
             page = alertRepository.findByOrganizationIdAndStatusOrderByCreatedAtDesc(
-                    organizationId, AlertStatus.valueOf(status.toUpperCase()), pageable);
+                    organizationId, Enums.parse(AlertStatus.class, status, "status"), pageable);
         } else {
             page = alertRepository.findByOrganizationIdOrderByCreatedAtDesc(organizationId, pageable);
         }
@@ -91,7 +92,7 @@ public class AlertService {
             throw new ResourceNotFoundException("Alert", alertId.toString());
         }
 
-        AlertStatus status = AlertStatus.valueOf(newStatus.toUpperCase());
+        AlertStatus status = Enums.parse(AlertStatus.class, newStatus, "status");
         alert.setStatus(status);
         alert.setReviewedBy(reviewerId);
         alert.setReviewedAt(Instant.now());
@@ -122,3 +123,4 @@ public class AlertService {
         return sb.toString().trim();
     }
 }
+

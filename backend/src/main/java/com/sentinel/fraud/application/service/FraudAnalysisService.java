@@ -21,7 +21,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sentinel.integration.application.service.WebhookService;
+import com.sentinel.mule.application.service.BeneficiaryRiskService;
+import com.sentinel.strategy.application.service.RuleLifecycleService;
+
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -37,13 +43,20 @@ public class FraudAnalysisService {
     private final TransactionService transactionService;
     private final AuditService auditService;
     private final ProfileService profileService;
+    private final RuleLifecycleService ruleLifecycleService;
+    private final BeneficiaryRiskService beneficiaryRiskService;
+    private final WebhookService webhookService;
 
     @Transactional
     public void analyzeTransaction(UUID transactionId) {
         Transaction transaction = transactionRepository.findById(transactionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction", transactionId.toString()));
 
-        List<RuleResult> allResults = ruleEngine.evaluate(transaction);
+        List<RuleResult> allResults = new ArrayList<>(ruleEngine.evaluate(transaction));
+        // Analyst-authored rules join the built-in ones on equal terms. Shadow
+        // rules are evaluated and recorded but never allowed to affect the score.
+        allResults.addAll(dynamicRuleResults(transaction));
+
         List<RuleResult> triggeredRules = allResults.stream().filter(RuleResult::isTriggered).toList();
 
         RiskScore riskScore = riskScoringService.calculateAndSave(transaction, allResults);
@@ -60,7 +73,17 @@ public class FraudAnalysisService {
             FraudAlert alert = alertService.createAlertIfNeeded(transaction, riskScore, triggeredRules);
             if (alert != null) {
                 explanationService.generateExplanation(alert, transaction, riskScore, triggeredRules);
+                webhookService.publish(transaction.getOrganizationId(), "ALERT_CREATED", Map.of(
+                        "alertId", alert.getId(),
+                        "transactionId", transactionId,
+                        "severity", alert.getSeverity().name(),
+                        "score", riskScore.getScore(),
+                        "userId", transaction.getUserId()));
             }
+
+            // The destination account is where scam money repeats across victims,
+            // so a flagged payment is a reason to re-judge its beneficiary.
+            beneficiaryRiskService.score(transaction.getOrganizationId(), transaction.getMerchantId());
 
             auditService.logAction(transaction.getOrganizationId(), transactionId,
                     AuditAction.TRANSACTION_FLAGGED, EntityType.TRANSACTION);
@@ -72,5 +95,27 @@ public class FraudAnalysisService {
 
         log.info("Transaction {} analyzed: score={} level={} triggeredRules={}",
                 transactionId, riskScore.getScore(), riskScore.getLevel(), triggeredRules.size());
+    }
+
+    /**
+     * Converts analyst-authored rule evaluations into the same {@link RuleResult}
+     * shape the built-in rules produce, so the scorer treats both identically.
+     * Shadow rules are filtered out: they are measured, never applied.
+     */
+    private List<RuleResult> dynamicRuleResults(Transaction transaction) {
+        try {
+            return ruleLifecycleService.evaluateAll(transaction.getOrganizationId(), transaction).stream()
+                    .filter(RuleLifecycleService.Evaluation::applied)
+                    .map(evaluation -> evaluation.triggered()
+                            ? RuleResult.triggered(evaluation.ruleName(), evaluation.riskPoints(),
+                            String.join("; ", evaluation.satisfiedConditions()))
+                            : RuleResult.pass(evaluation.ruleName()))
+                    .toList();
+        } catch (Exception e) {
+            // A broken custom rule must never stop a transaction being scored.
+            log.error("Dynamic rule evaluation failed for transaction {}: {}",
+                    transaction.getId(), e.getMessage());
+            return List.of();
+        }
     }
 }

@@ -1,158 +1,151 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { cn } from '@/lib/utils';
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { motion } from "framer-motion";
 import {
-  LayoutDashboard,
-  CreditCard,
-  Shield,
-  AlertTriangle,
-  FolderKanban,
-  Bot,
   BarChart3,
+  Bell,
+  Bot,
+  Brain,
+  FileSearch,
+  FolderKanban,
+  Gavel,
+  LayoutDashboard,
+  Network,
+  Plug,
+  Receipt,
+  ScrollText,
   Settings,
-  ChevronLeft,
-  ChevronRight,
-  Zap,
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+  Share2,
+  ShieldAlert,
+  Sparkles,
+  TrendingUp,
+  UserCheck,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { Logo } from "./Logo";
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Transactions', href: '/transactions', icon: CreditCard },
-  { name: 'Fraud Detection', href: '/fraud', icon: Shield },
-  { name: 'Alerts', href: '/alerts', icon: AlertTriangle },
-  { name: 'Cases', href: '/cases', icon: FolderKanban },
-  { name: 'AI Agents', href: '/ai-agents', icon: Bot },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Settings', href: '/settings', icon: Settings },
+/**
+ * Every entry here resolves to a real page. Navigation that 404s is worse than
+ * navigation that is short.
+ *
+ * Grouped because the platform now spans four jobs — working the queue,
+ * hunting networks, onboarding identities, and supervising the automation —
+ * and a flat list of eighteen links hides all four.
+ */
+interface NavItem {
+  href: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
+  {
+    label: "Operations",
+    items: [
+      { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
+      { href: "/alerts", label: "Alert queue", icon: Bell },
+      { href: "/cases", label: "Cases", icon: FolderKanban },
+      { href: "/transactions", label: "Transactions", icon: Receipt },
+      { href: "/disputes", label: "Disputes", icon: Gavel },
+    ],
+  },
+  {
+    label: "Detection",
+    items: [
+      { href: "/scams", label: "Scam defence", icon: ShieldAlert },
+      { href: "/network", label: "Networks & mules", icon: Network },
+      { href: "/identity", label: "Identity & KYC", icon: UserCheck },
+      { href: "/aml", label: "AML & reporting", icon: ScrollText },
+      { href: "/genai", label: "GenAI defence", icon: Bot },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { href: "/autonomy", label: "AI operations", icon: Sparkles },
+      { href: "/strategy", label: "Rule studio", icon: Brain },
+      { href: "/patterns", label: "Patterns", icon: FileSearch },
+      { href: "/consortium", label: "Consortium", icon: Share2 },
+    ],
+  },
+  {
+    label: "Assurance",
+    items: [
+      { href: "/roi", label: "Value & forecast", icon: TrendingUp },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
+      { href: "/governance", label: "Model governance", icon: ShieldAlert },
+      { href: "/integrations", label: "Integrations", icon: Plug },
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
-export function Sidebar() {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+/** Flattened, for the mobile menu and the command palette. */
+const NAV = NAV_GROUPS.flatMap((group) => group.items);
+
+export function Sidebar({ openAlerts = 0 }: { openAlerts?: number }) {
   const pathname = usePathname();
 
   return (
-    <motion.aside
-      initial={false}
-      animate={{ width: isCollapsed ? 80 : 256 }}
-      className="fixed left-0 top-0 h-screen bg-card/50 backdrop-blur-xl border-r border-primary/10 z-50"
-    >
-      <div className="flex flex-col h-full">
-        {/* Logo */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-primary/10">
-          <AnimatePresence mode="wait">
-            {!isCollapsed && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex items-center gap-2"
-              >
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-                  <Zap className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-lg font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
-                  SentinelAI
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <button
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors"
-          >
-            {isCollapsed ? (
-              <ChevronRight className="w-5 h-5" />
-            ) : (
-              <ChevronLeft className="w-5 h-5" />
-            )}
-          </button>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navigation.map((item) => {
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + '/');
-            const Icon = item.icon;
-
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all group relative',
-                  isActive
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-primary/5 hover:text-foreground'
-                )}
-              >
-                {isActive && (
-                  <motion.div
-                    layoutId="activeTab"
-                    className="absolute inset-0 bg-gradient-to-r from-primary/10 to-accent/10 rounded-lg"
-                    transition={{ type: 'spring', bounce: 0.2, duration: 0.6 }}
-                  />
-                )}
-
-                <div className="relative z-10 flex items-center gap-3 flex-1">
-                  <Icon className="w-5 h-5 flex-shrink-0" />
-                  <AnimatePresence mode="wait">
-                    {!isCollapsed && (
-                      <motion.span
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -10 }}
-                        className="text-sm font-medium"
-                      >
-                        {item.name}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {isActive && !isCollapsed && (
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    className="w-1.5 h-1.5 rounded-full bg-primary"
-                  />
-                )}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* Footer */}
-        <div className="p-4 border-t border-primary/10">
-          <AnimatePresence mode="wait">
-            {!isCollapsed ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex items-center gap-2 text-xs text-muted-foreground"
-              >
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-                <span>System Online</span>
-              </motion.div>
-            ) : (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex justify-center"
-              >
-                <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface lg:flex">
+      <div className="flex h-16 items-center px-5">
+        <Link href="/dashboard" className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+          <Logo />
+        </Link>
       </div>
-    </motion.aside>
+
+      <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-2" aria-label="Main">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.label} className="space-y-0.5">
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+              {group.label}
+            </p>
+            {group.items.map((item) => {
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    active
+                      ? "font-medium text-ink"
+                      : "text-ink-secondary hover:bg-surface-sunken hover:text-ink"
+                  )}
+                >
+                  {active && (
+                    <motion.span
+                      layoutId="nav-active"
+                      className="absolute inset-0 -z-10 rounded-md bg-primary-wash"
+                      transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    />
+                  )}
+                  <Icon className={cn("size-4 shrink-0", active ? "text-primary" : "text-ink-muted")} />
+                  <span className="flex-1">{item.label}</span>
+                  {item.href === "/alerts" && openAlerts > 0 && (
+                    <span className="rounded-full bg-critical px-1.5 py-0.5 text-[10px] font-semibold tabular text-white">
+                      {openAlerts > 99 ? "99+" : openAlerts}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+
+      <div className="border-t border-line p-4">
+        <p className="text-[11px] leading-relaxed text-ink-muted">
+          Decisions are advisory. Every AI output is recorded and replayable.
+        </p>
+      </div>
+    </aside>
   );
 }
 
+export { NAV, NAV_GROUPS };

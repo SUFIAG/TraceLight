@@ -9,10 +9,28 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
+/**
+ * Detects a transaction from a country the customer has not transacted from
+ * before. History is read as of the transaction's own timestamp and scoped to
+ * the owning organization.
+ */
 @Component
 @RequiredArgsConstructor
 public class GeographicAnomalyRule implements FraudRule {
+
+    private static final int HISTORY_DEPTH = 20;
+
+    /**
+     * Jurisdictions that carry elevated inherent risk for card-not-present fraud.
+     * A first-time country is always an anomaly; a first-time country on this list
+     * is a stronger one.
+     */
+    private static final Set<String> ELEVATED_RISK_COUNTRIES = Set.of(
+            "NG", "RU", "VN", "UA", "ID", "PK", "BY", "KP", "IR", "SY"
+    );
 
     private final TransactionRepository transactionRepository;
 
@@ -28,25 +46,40 @@ public class GeographicAnomalyRule implements FraudRule {
 
     @Override
     public RuleResult evaluate(Transaction transaction) {
-        if (transaction.getCountry() == null || transaction.getCountry().isBlank()) {
+        String country = transaction.getCountry();
+        if (country == null || country.isBlank()) {
             return RuleResult.pass(getName());
         }
 
-        List<Transaction> recent = transactionRepository.findRecentWithCountryByUserId(
-                transaction.getUserId(), PageRequest.of(0, 10));
+        List<Transaction> history = transactionRepository.findCountryHistoryBefore(
+                transaction.getOrganizationId(),
+                transaction.getUserId(),
+                transaction.getTimestamp(),
+                PageRequest.of(0, HISTORY_DEPTH));
 
-        if (recent.isEmpty()) {
+        boolean elevated = ELEVATED_RISK_COUNTRIES.contains(country.toUpperCase());
+
+        if (history.isEmpty()) {
+            // No baseline yet. An unknown customer transacting from an elevated-risk
+            // jurisdiction is still worth surfacing; anything else is simply new.
+            return elevated
+                    ? RuleResult.triggered(getName(), 55,
+                        String.format("First recorded transaction for this customer originates from '%s', "
+                                + "a jurisdiction with elevated card-not-present fraud rates", country))
+                    : RuleResult.pass(getName());
+        }
+
+        Set<String> knownCountries = history.stream()
+                .map(Transaction::getCountry)
+                .collect(Collectors.toSet());
+
+        if (knownCountries.contains(country)) {
             return RuleResult.pass(getName());
         }
 
-        boolean countryMismatch = recent.stream()
-                .noneMatch(t -> transaction.getCountry().equals(t.getCountry()));
-
-        if (countryMismatch) {
-            return RuleResult.triggered(getName(), 70,
-                    String.format("Transaction from country '%s' not seen in user's recent history",
-                            transaction.getCountry()));
-        }
-        return RuleResult.pass(getName());
+        int contribution = elevated ? 85 : 70;
+        return RuleResult.triggered(getName(), contribution,
+                String.format("Transaction from '%s' is outside the customer's known footprint (%s)",
+                        country, String.join(", ", knownCountries)));
     }
 }

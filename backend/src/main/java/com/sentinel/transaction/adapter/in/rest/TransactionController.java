@@ -4,6 +4,7 @@ import com.sentinel.common.dto.ApiResponse;
 import com.sentinel.transaction.application.dto.BulkUploadResponse;
 import com.sentinel.transaction.application.dto.IngestTransactionRequest;
 import com.sentinel.transaction.application.dto.TransactionResponse;
+import com.sentinel.transaction.application.service.BulkIngestionService;
 import com.sentinel.transaction.application.service.TransactionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -25,6 +26,7 @@ import java.util.UUID;
 public class TransactionController {
 
     private final TransactionService transactionService;
+    private final BulkIngestionService bulkIngestionService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<TransactionResponse>> ingestTransaction(
@@ -37,12 +39,20 @@ public class TransactionController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
     }
 
+    /**
+     * Bulk CSV ingestion.
+     *
+     * @param analyze run every accepted row through the fraud pipeline. On by
+     *                default, because an upload that produces no risk scores and
+     *                no alerts leaves the platform looking empty.
+     */
     @PostMapping("/upload")
     public ResponseEntity<ApiResponse<BulkUploadResponse>> uploadCsv(
             @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "true") boolean analyze,
             Authentication auth) {
         UUID orgId = extractOrgId(auth);
-        BulkUploadResponse response = transactionService.uploadCsvTransactions(file, orgId);
+        BulkUploadResponse response = bulkIngestionService.upload(file, orgId, analyze);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

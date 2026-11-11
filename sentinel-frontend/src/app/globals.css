@@ -2,124 +2,208 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Tracelight design tokens.
+ *
+ * Light is the default surface because the product is read in lit rooms and on
+ * projectors. Dark is a selected second theme, stepped for its own surface,
+ * never an automatic inversion of the light values.
+ *
+ * Chart series colors are a validated categorical palette: every adjacent and
+ * all-pairs combination clears the colorblind separation and normal-vision
+ * floors in both modes.
+ */
+
 @layer base {
   :root {
-    --background: 222 47% 11%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 11%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 15%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 189 100% 50%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 266 83% 65%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 266 83% 65%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 189 100% 50%;
+    /* Surfaces */
+    --page: #f4f4f1;
+    --surface: #fcfcfb;
+    --surface-raised: #ffffff;
+    --surface-sunken: #efeeea;
+
+    /* Ink */
+    --ink: #0b0b0b;
+    --ink-secondary: #52514e;
+    --ink-muted: #898781;
+
+    /* Lines */
+    --line: rgba(11, 11, 11, 0.1);
+    --line-strong: rgba(11, 11, 11, 0.18);
+    --grid: #e1e0d9;
+
+    /* Brand */
+    --primary: #1c5cab;
+    --primary-hover: #184f95;
+    --primary-ink: #ffffff;
+    --primary-wash: #e8f0fc;
+
+    /* Status — fixed, never themed, always paired with an icon and a label */
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --good-wash: #e7f6e7;
+    --warning-wash: #fdf3dd;
+    --serious-wash: #fceee7;
+    --critical-wash: #fae8e8;
+
+    /* Chart series — validated categorical slots, assigned in fixed order */
+    --series-1: #2a78d6;
+    --series-2: #eb6834;
+    --series-3: #1baf7a;
+
+    /* Sequential ramp, single hue, light to dark */
+    --seq-100: #cde2fb;
+    --seq-250: #86b6ef;
+    --seq-400: #3987e5;
+    --seq-550: #1c5cab;
+    --seq-700: #0d366b;
+
     --radius: 0.5rem;
+
+    color-scheme: light;
+  }
+
+  :root[data-theme="dark"] {
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-raised: #222220;
+    --surface-sunken: #141413;
+
+    --ink: #ffffff;
+    --ink-secondary: #c3c2b7;
+    --ink-muted: #898781;
+
+    --line: rgba(255, 255, 255, 0.1);
+    --line-strong: rgba(255, 255, 255, 0.18);
+    --grid: #2c2c2a;
+
+    --primary: #3987e5;
+    --primary-hover: #5598e7;
+    --primary-ink: #0b0b0b;
+    --primary-wash: #16304d;
+
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+    --good-wash: #102910;
+    --warning-wash: #302615;
+    --serious-wash: #301f18;
+    --critical-wash: #301616;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+
+    --seq-100: #0d366b;
+    --seq-250: #184f95;
+    --seq-400: #2a78d6;
+    --seq-550: #5598e7;
+    --seq-700: #9ec5f4;
+
+    color-scheme: dark;
+  }
+
+  * {
+    border-color: var(--line);
+  }
+
+  body {
+    background-color: var(--page);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Columns of numbers align; standalone display figures stay proportional. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
   }
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+@layer components {
+  /* Focus ring used by every interactive element, so keyboard users never
+     lose their place. */
+  .focus-ring {
+    @apply outline-none ring-offset-2 focus-visible:ring-2;
+    --tw-ring-color: var(--primary);
+    --tw-ring-offset-color: var(--surface);
   }
 }
 
 @layer utilities {
-  .glass {
-    @apply bg-white/5 backdrop-blur-xl border border-white/10;
-  }
+  /*
+   * Ambient surface treatments.
+   *
+   * These give the monitoring surfaces depth without introducing a second
+   * visual language: every value below resolves to an existing token, so the
+   * effect restates the theme rather than competing with it.
+   */
 
-  .glass-hover {
-    @apply hover:bg-white/10 transition-all duration-300;
-  }
-
-  .glow {
-    box-shadow: 0 0 20px rgba(0, 217, 255, 0.3);
-  }
-
-  .glow-purple {
-    box-shadow: 0 0 20px rgba(168, 85, 247, 0.3);
-  }
-
-  .animated-gradient {
-    background: linear-gradient(
-      135deg,
-      hsl(var(--primary)) 0%,
-      hsl(var(--secondary)) 100%
-    );
-    background-size: 200% 200%;
-    animation: gradient 3s ease infinite;
-  }
-
-  @keyframes gradient {
-    0% {
-      background-position: 0% 50%;
-    }
-    50% {
-      background-position: 100% 50%;
-    }
-    100% {
-      background-position: 0% 50%;
-    }
-  }
-
-  .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary;
-  }
-
-  .cyber-grid {
+  /* Faint engineering grid. Used behind hero panels and the threat map. */
+  .surface-grid {
     background-image:
-      linear-gradient(rgba(0, 217, 255, 0.05) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(0, 217, 255, 0.05) 1px, transparent 1px);
-    background-size: 50px 50px;
+      linear-gradient(to right, var(--grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.4;
+  }
+
+  /* A soft radial lift behind a focal element. */
+  .surface-glow {
+    background: radial-gradient(
+      60% 60% at 50% 0%,
+      var(--primary-wash) 0%,
+      transparent 70%
+    );
+  }
+
+  /* Left edge accent that carries a severity colour up the side of a row. */
+  .edge-accent {
+    position: relative;
+  }
+  .edge-accent::before {
+    content: "";
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: 2px;
+    border-start-start-radius: inherit;
+    border-end-start-radius: inherit;
+    background-color: currentColor;
+  }
+
+  /* Monospaced figures for live counters and identifiers. */
+  .numeric {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
   }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: hsl(var(--background));
-}
-
-::-webkit-scrollbar-thumb {
-  background: hsl(var(--primary) / 0.3);
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--primary) / 0.5);
-}
-
-/* Number animation */
-@keyframes count-up {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
+@layer utilities {
+  .scrollbar-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  .scrollbar-slim::-webkit-scrollbar-thumb {
+    background-color: var(--line-strong);
+    border-radius: 4px;
+  }
+  .scrollbar-slim::-webkit-scrollbar-track {
+    background-color: transparent;
   }
 }
 
-.animate-count {
-  animation: count-up 0.5s ease-out;
+/* Motion: short, purposeful, and disabled for anyone who asks for less. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
-
